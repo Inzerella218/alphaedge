@@ -4,7 +4,7 @@ import { useState } from "react";
 import AppShell from "@/components/app-shell";
 import PageHeader from "@/components/page-header";
 
-type AlgoKey = "orb" | "sweep";
+type AlgoKey = "orb" | "sweep" | "vwap" | "pullback" | "breakhold";
 
 export default function AlgoLabPage() {
   const [selectedAlgo, setSelectedAlgo] = useState<AlgoKey>("orb");
@@ -48,6 +48,9 @@ export default function AlgoLabPage() {
               >
                 <option value="orb">Opening Range Breakout</option>
                 <option value="sweep">Session Sweep Reclaim</option>
+                <option value="vwap">VWAP Reclaim</option>
+                <option value="pullback">Opening Pullback</option>
+                <option value="breakhold">Break and Hold</option>
               </select>
             </div>
 

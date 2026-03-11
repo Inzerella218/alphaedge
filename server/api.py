@@ -1,14 +1,15 @@
 from server.algo_api import router as algo_router
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from server.ibkr_scanner import get_scanner_snapshot
-import traceback
+from server.ibkr_market import get_candles_payload
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import time
 
 app = FastAPI()
 
-
 app.include_router(algo_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,8 +18,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-CACHE_SECONDS = 3
-ROW_TTL_SECONDS = 180
+CACHE_SECONDS = 5
+ROW_TTL_SECONDS = 240
+SCANNER_TIMEOUT_SECONDS = 2.2
 
 _snapshot_rows = {}
 _last_refresh_ts = 0.0
@@ -51,9 +53,9 @@ def merge_rows(new_rows, now_ts):
             x.get("score", 0),
             x.get("premarketPct", 0),
             x.get("gap", 0),
-            x.get("rvol", 0)
+            x.get("rvol", 0),
         ),
-        reverse=True
+        reverse=True,
     )
 
     clean_rows = []
@@ -64,29 +66,51 @@ def merge_rows(new_rows, now_ts):
 
     return clean_rows
 
+def safe_scanner_fetch():
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(get_scanner_snapshot)
+        try:
+            return future.result(timeout=SCANNER_TIMEOUT_SECONDS)
+        except FuturesTimeoutError:
+            return None
+        except Exception:
+            return None
+
 @app.get("/scanner")
 def scanner():
     global _last_refresh_ts
 
+    now = time.time()
+
     try:
-        now = time.time()
-
         if now - _last_refresh_ts >= CACHE_SECONDS:
-            fresh_rows = get_scanner_snapshot()
+            fresh_rows = safe_scanner_fetch()
 
-            # only update cache if IBKR actually returned something
             if isinstance(fresh_rows, list) and len(fresh_rows) > 0:
                 rows = merge_rows(fresh_rows, now)
                 _last_refresh_ts = now
-            else:
-                rows = merge_rows([], now)
-        else:
-            rows = merge_rows([], now)
+                return {
+                    "ok": True,
+                    "updatedAt": _last_refresh_ts,
+                    "rows": rows,
+                    "source": "live",
+                }
 
+            rows = merge_rows([], now)
+            return {
+                "ok": True,
+                "updatedAt": _last_refresh_ts,
+                "rows": rows,
+                "source": "cache",
+                "warning": "Scanner fetch timed out or returned no rows.",
+            }
+
+        rows = merge_rows([], now)
         return {
             "ok": True,
             "updatedAt": _last_refresh_ts,
-            "rows": rows
+            "rows": rows,
+            "source": "cache",
         }
 
     except Exception as e:
@@ -95,5 +119,20 @@ def scanner():
             "ok": True,
             "updatedAt": _last_refresh_ts,
             "rows": rows,
-            "warning": str(e)
+            "source": "cache",
+            "warning": str(e),
         }
+
+@app.get("/market/candles")
+def market_candles(
+    symbol: str = Query("ES"),
+    timeframe: str = Query("1 min"),
+    bars: int = Query(240),
+):
+    payload = get_candles_payload(symbol=symbol.upper(), timeframe=timeframe, bars=bars)
+    return {
+        "ok": True,
+        "symbol": symbol.upper(),
+        "timeframe": timeframe,
+        "bars": payload,
+    }
