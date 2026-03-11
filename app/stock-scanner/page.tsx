@@ -15,11 +15,12 @@ type Stock = {
   score: number
   signal: string
   catalyst: string
+  premarketHigh?: number
 }
 
 function getSignalColor(signal: string) {
-  if (signal === "BUY") return "text-green-400"
-  if (signal === "WAIT") return "text-yellow-400"
+  if (signal === "A SETUP") return "text-green-400"
+  if (signal === "B SETUP") return "text-yellow-400"
   return "text-red-400"
 }
 
@@ -37,9 +38,12 @@ export default function StockScannerPage() {
       setError("")
 
       if (data.length > 0) {
-        setSelectedStock((current) => current ?? data[0])
+        setSelectedStock((current) => {
+          if (!current) return data[0]
+          return data.find((s: Stock) => s.ticker === current.ticker) ?? current
+        })
       }
-    } catch (err) {
+    } catch {
       setError("Could not load scanner data")
     } finally {
       setLoading(false)
@@ -51,7 +55,7 @@ export default function StockScannerPage() {
 
     const interval = setInterval(() => {
       loadData()
-    }, 10000)
+    }, 15000)
 
     return () => clearInterval(interval)
   }, [])
@@ -85,8 +89,7 @@ export default function StockScannerPage() {
               <th className="py-2">Gap%</th>
               <th className="py-2">RVOL</th>
               <th className="py-2">Float(M)</th>
-              <th className="py-2">VWAP</th>
-              <th className="py-2">Volume</th>
+              <th className="py-2">PM High</th>
               <th className="py-2">Pattern</th>
               <th className="py-2">Score</th>
               <th className="py-2">Signal</th>
@@ -103,15 +106,14 @@ export default function StockScannerPage() {
                 <td className="py-3">
                   {stock.catalyst} {stock.ticker}
                 </td>
-                <td className="py-3">${Number(stock.price || 0).toFixed(2)}</td>
-                <td className="py-3">{stock.gap}%</td>
-                <td className="py-3">{stock.rvol}x</td>
-                <td className="py-3">{stock.float}</td>
-                <td className="py-3">{stock.vwap}</td>
-                <td className="py-3">{stock.volumeTrend}</td>
+                <td className="py-3"></td>
+                <td className="py-3">{Number(stock.gap || 0).toFixed(2)}%</td>
+                <td className="py-3">{Number(stock.rvol || 0).toFixed(2)}x</td>
+                <td className="py-3">{Number(stock.float || 0).toFixed(2)}</td>
+                <td className="py-3"></td>
                 <td className="py-3">{stock.pattern}</td>
                 <td className="py-3">{stock.score}</td>
-                <td className={"py-3 " + getSignalColor(stock.signal)}>
+                <td className={"py-3 font-semibold " + getSignalColor(stock.signal)}>
                   {stock.signal}
                 </td>
               </tr>
@@ -128,7 +130,11 @@ export default function StockScannerPage() {
         {selected && (
           <div className="space-y-3">
             <div className="text-lg font-bold">{selected.ticker}</div>
-            <div>Price: ${Number(selected.price || 0).toFixed(2)}</div>
+            <div>Price: </div>
+            <div>Gap: {Number(selected.gap || 0).toFixed(2)}%</div>
+            <div>RVOL: {Number(selected.rvol || 0).toFixed(2)}x</div>
+            <div>Float: {Number(selected.float || 0).toFixed(2)}M</div>
+            <div>Premarket High: </div>
             <div>Pattern: {selected.pattern}</div>
             <div>Score: {selected.score}</div>
             <div className={getSignalColor(selected.signal)}>

@@ -1,20 +1,22 @@
 import os
 import random
 import asyncio
+import yfinance as yf
 from ib_insync import IB, ScannerSubscription
 
 IB_HOST = os.getenv("IB_HOST", "127.0.0.1")
 IB_PORT = int(os.getenv("IB_PORT", "7497"))
 
-def get_scanner_snapshot():
+def get_ibkr_symbols():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     ib = IB()
-    client_id = random.randint(1000, 9999)
 
     try:
-        ib.connect(IB_HOST, IB_PORT, clientId=client_id, timeout=10)
+        client = random.randint(1000,9000)
+
+        ib.connect(IB_HOST, IB_PORT, clientId=client)
 
         scan = ScannerSubscription(
             instrument="STK",
@@ -22,33 +24,55 @@ def get_scanner_snapshot():
             scanCode="TOP_PERC_GAIN"
         )
 
-        results = ib.reqScannerData(scan)
+        data = ib.reqScannerData(scan)
 
-        final_results = []
+        symbols = []
+        for r in data[:12]:
+            symbols.append(r.contractDetails.contract.symbol)
 
-        for r in results[:10]:
-            contract = r.contractDetails.contract
-
-            final_results.append({
-                "ticker": contract.symbol,
-                "price": 0.0,
-                "gap": 0,
-                "rvol": 0,
-                "float": 0,
-                "vwap": "UNKNOWN",
-                "volumeTrend": "UNKNOWN",
-                "pattern": "NONE",
-                "score": 0,
-                "signal": "WAIT",
-                "catalyst": ""
-            })
-
-        return final_results
+        return symbols
 
     finally:
         if ib.isConnected():
             ib.disconnect()
-        try:
-            loop.close()
-        except Exception:
-            pass
+
+def get_snapshot(symbol):
+    try:
+        t = yf.Ticker(symbol)
+        fi = t.fast_info
+
+        price = float(fi.get("lastPrice",0))
+        prev = float(fi.get("previousClose",0))
+
+        gap = 0
+        if prev > 0:
+            gap = round(((price-prev)/prev)*100,2)
+
+        return {
+            "ticker": symbol,
+            "price": price,
+            "gap": gap,
+            "rvol": 0,
+            "float": 0,
+            "vwap": "UNKNOWN",
+            "volumeTrend": "UNKNOWN",
+            "pattern": "NONE",
+            "score": 0,
+            "signal": "WAIT",
+            "catalyst": ""
+        }
+
+    except:
+        return None
+
+def get_scanner_snapshot():
+    symbols = get_ibkr_symbols()
+
+    out = []
+
+    for s in symbols:
+        row = get_snapshot(s)
+        if row:
+            out.append(row)
+
+    return out
