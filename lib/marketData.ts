@@ -1,5 +1,5 @@
 export async function fetchMarketData() {
-  const res = await fetch("http://127.0.0.1:8000/scanner", {
+  const res = await fetch("http://127.0.0.1:8010/scanner", {
     cache: "no-store",
   })
 
@@ -7,5 +7,15 @@ export async function fetchMarketData() {
     throw new Error("Failed to fetch scanner data")
   }
 
-  return await res.json()
+  const data = await res.json()
+
+  if (Array.isArray(data)) {
+    return data
+  }
+
+  if (Array.isArray(data.rows)) {
+    return data.rows
+  }
+
+  return []
 }

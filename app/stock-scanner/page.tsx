@@ -7,6 +7,8 @@ type Stock = {
   ticker: string
   price: number
   gap: number
+  premarketPrice?: number
+  premarketPct?: number
   rvol: number
   float: number
   vwap: string
@@ -15,7 +17,7 @@ type Stock = {
   score: number
   signal: string
   catalyst: string
-  premarketHigh?: number
+  newsAgeMinutes?: number | null
 }
 
 function getSignalColor(signal: string) {
@@ -24,20 +26,88 @@ function getSignalColor(signal: string) {
   return "text-red-400"
 }
 
+function getNumberColor(value: number) {
+  if (value > 0) return "text-green-400"
+  if (value < 0) return "text-red-400"
+  return "text-white"
+}
+
+function getTradingViewUrl(ticker: string) {
+  const symbol = encodeURIComponent(`NASDAQ:${ticker}`)
+  return `https://s.tradingview.com/widgetembed/?symbol=${symbol}&interval=1&theme=dark&style=1&locale=en&toolbarbg=131722&hideideas=1`
+}
+
 export default function StockScannerPage() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null)
+  const [pinnedTickers, setPinnedTickers] = useState<string[]>([])
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(true)
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null)
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("alphaedge_pinned_tickers")
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed)) {
+          setPinnedTickers(parsed)
+        }
+      }
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem("alphaedge_pinned_tickers", JSON.stringify(pinnedTickers))
+  }, [pinnedTickers])
+
+  function togglePin(ticker: string) {
+    setPinnedTickers((current) => {
+      if (current.includes(ticker)) {
+        return current.filter((t) => t !== ticker)
+      }
+      return [ticker, ...current]
+    })
+  }
 
   async function loadData() {
     try {
-      setLoading(true)
       const data = await fetchMarketData()
-      setStocks(data)
-      setError("")
 
-      if (data.length > 0) {
+      if (Array.isArray(data) && data.length > 0) {
+        setStocks((current) => {
+          const currentMap = new Map(current.map((s) => [s.ticker, s]))
+          const nextMap = new Map<string, Stock>()
+
+          for (const row of data) {
+            nextMap.set(row.ticker, row)
+          }
+
+          for (const ticker of pinnedTickers) {
+            if (!nextMap.has(ticker) && currentMap.has(ticker)) {
+              nextMap.set(ticker, currentMap.get(ticker)!)
+            }
+          }
+
+          const merged = Array.from(nextMap.values())
+
+          merged.sort((a, b) => {
+            const aPinned = pinnedTickers.includes(a.ticker) ? 1 : 0
+            const bPinned = pinnedTickers.includes(b.ticker) ? 1 : 0
+
+            if (aPinned !== bPinned) return bPinned - aPinned
+            if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0)
+            if ((b.premarketPct || 0) !== (a.premarketPct || 0)) return (b.premarketPct || 0) - (a.premarketPct || 0)
+            if ((b.gap || 0) !== (a.gap || 0)) return (b.gap || 0) - (a.gap || 0)
+            return (b.rvol || 0) - (a.rvol || 0)
+          })
+
+          return merged
+        })
+
+        setError("")
+        setLastUpdated(Date.now())
+
         setSelectedStock((current) => {
           if (!current) return data[0]
           return data.find((s: Stock) => s.ticker === current.ticker) ?? current
@@ -55,21 +125,28 @@ export default function StockScannerPage() {
 
     const interval = setInterval(() => {
       loadData()
-    }, 15000)
+    }, 1000)
 
     return () => clearInterval(interval)
-  }, [])
+  }, [pinnedTickers])
 
   const selected = useMemo(() => {
     if (!selectedStock) return null
     return stocks.find((s) => s.ticker === selectedStock.ticker) ?? selectedStock
   }, [stocks, selectedStock])
 
+  const isSelectedPinned = selected ? pinnedTickers.includes(selected.ticker) : false
+
   return (
     <div className="flex h-screen bg-black text-white">
-      <div className="w-2/3 p-6 border-r border-gray-800 overflow-auto">
+      <div className="w-[38%] p-6 border-r border-gray-800 overflow-auto">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold">Alpha Edge Momentum Scanner</h1>
+          <div>
+            <h1 className="text-2xl font-bold">Alpha Edge Momentum Scanner</h1>
+            <p className="text-xs text-gray-400 mt-1">
+              {lastUpdated ? `Updated ${new Date(lastUpdated).toLocaleTimeString()}` : "Waiting for first update..."}
+            </p>
+          </div>
           <button
             onClick={loadData}
             className="px-3 py-2 rounded bg-gray-800 hover:bg-gray-700"
@@ -86,55 +163,97 @@ export default function StockScannerPage() {
             <tr>
               <th className="py-2">Ticker</th>
               <th className="py-2">Price</th>
-              <th className="py-2">Gap%</th>
+              <th className="py-2">Day %</th>
+              <th className="py-2">Premkt %</th>
               <th className="py-2">RVOL</th>
-              <th className="py-2">Float(M)</th>
-              <th className="py-2">PM High</th>
-              <th className="py-2">Pattern</th>
-              <th className="py-2">Score</th>
               <th className="py-2">Signal</th>
             </tr>
           </thead>
 
           <tbody>
-            {stocks.map((stock) => (
-              <tr
-                key={stock.ticker}
-                onClick={() => setSelectedStock(stock)}
-                className="border-b border-gray-900 cursor-pointer hover:bg-gray-900"
-              >
-                <td className="py-3">
-                  {stock.catalyst} {stock.ticker}
-                </td>
-                <td className="py-3"></td>
-                <td className="py-3">{Number(stock.gap || 0).toFixed(2)}%</td>
-                <td className="py-3">{Number(stock.rvol || 0).toFixed(2)}x</td>
-                <td className="py-3">{Number(stock.float || 0).toFixed(2)}</td>
-                <td className="py-3"></td>
-                <td className="py-3">{stock.pattern}</td>
-                <td className="py-3">{stock.score}</td>
-                <td className={"py-3 font-semibold " + getSignalColor(stock.signal)}>
-                  {stock.signal}
-                </td>
-              </tr>
-            ))}
+            {stocks.map((stock) => {
+              const isPinned = pinnedTickers.includes(stock.ticker)
+
+              return (
+                <tr
+                  key={stock.ticker}
+                  onClick={() => setSelectedStock(stock)}
+                  className="border-b border-gray-900 cursor-pointer hover:bg-gray-900"
+                >
+                  <td className="py-3">
+                    {isPinned ? "? " : ""}
+                    {stock.catalyst} {stock.ticker}
+                  </td>
+                  <td className="py-3">${Number(stock.price || 0).toFixed(2)}</td>
+                  <td className={"py-3 " + getNumberColor(Number(stock.gap || 0))}>
+                    {Number(stock.gap || 0).toFixed(2)}%
+                  </td>
+                  <td className={"py-3 " + getNumberColor(Number(stock.premarketPct || 0))}>
+                    {Number(stock.premarketPct || 0).toFixed(2)}%
+                  </td>
+                  <td className="py-3">{Number(stock.rvol || 0).toFixed(2)}x</td>
+                  <td className={"py-3 font-semibold " + getSignalColor(stock.signal)}>
+                    {stock.signal}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
 
-      <div className="w-1/3 p-6">
-        <h2 className="text-xl font-bold mb-4">Trade Panel</h2>
+      <div className="w-[37%] p-4 border-r border-gray-800">
+        <div className="h-full rounded-xl overflow-hidden border border-gray-800 bg-[#131722]">
+          {selected ? (
+            <iframe
+              key={selected.ticker}
+              src={getTradingViewUrl(selected.ticker)}
+              title={`TradingView chart for ${selected.ticker}`}
+              className="h-full w-full"
+              frameBorder="0"
+            />
+          ) : (
+            <div className="h-full flex items-center justify-center text-gray-400">
+              Select a stock to load chart
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="w-[25%] p-6 overflow-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold">Trade Panel</h2>
+
+          {selected && (
+            <button
+              onClick={() => togglePin(selected.ticker)}
+              className="text-2xl leading-none px-2 py-1 rounded hover:bg-gray-800"
+              title={isSelectedPinned ? "Unpin stock" : "Pin stock"}
+            >
+              {isSelectedPinned ? "?" : "?"}
+            </button>
+          )}
+        </div>
 
         {!selected && <p>Select a stock to view trade details</p>}
 
         {selected && (
           <div className="space-y-3">
-            <div className="text-lg font-bold">{selected.ticker}</div>
-            <div>Price: </div>
-            <div>Gap: {Number(selected.gap || 0).toFixed(2)}%</div>
+            <div className="text-lg font-bold">
+              {selected.catalyst} {selected.ticker}
+            </div>
+            <div>Price: ${Number(selected.price || 0).toFixed(2)}</div>
+            <div className={getNumberColor(Number(selected.gap || 0))}>
+              Day Change: {Number(selected.gap || 0).toFixed(2)}%
+            </div>
+            <div className={getNumberColor(Number(selected.premarketPct || 0))}>
+              Premarket Change: {Number(selected.premarketPct || 0).toFixed(2)}%
+            </div>
+            <div>Premarket Price: ${Number(selected.premarketPrice || 0).toFixed(2)}</div>
             <div>RVOL: {Number(selected.rvol || 0).toFixed(2)}x</div>
-            <div>Float: {Number(selected.float || 0).toFixed(2)}M</div>
-            <div>Premarket High: </div>
+            <div>
+              News Age: {selected.newsAgeMinutes != null ? `${selected.newsAgeMinutes}m` : "-"}
+            </div>
             <div>Pattern: {selected.pattern}</div>
             <div>Score: {selected.score}</div>
             <div className={getSignalColor(selected.signal)}>
