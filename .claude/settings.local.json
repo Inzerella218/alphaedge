@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.forexfactory.com)",
+      "WebSearch",
+      "Bash(curl -s http://127.0.0.1:8010/market/earnings)",
+      "Bash(curl -s \"http://127.0.0.1:8010/market/earnings/refresh\")",
+      "Bash(python -c \":*)",
+      "WebFetch(domain:finance.yahoo.com)",
+      "WebFetch(domain:www.earningswhispers.com)",
+      "WebFetch(domain:api.nasdaq.com)",
+      "WebFetch(domain:stockanalysis.com)",
+      "Bash(python -c \"from bs4 import BeautifulSoup; print\\(''''bs4 OK''''\\)\")",
+      "Bash(python -c \"import yfinance; print\\(''''yfinance OK''''\\)\")",
+      "Bash(pip install:*)",
+      "WebFetch(domain:www.forexlive.com)"
+    ]
+  }
+}
